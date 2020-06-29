@@ -5,17 +5,17 @@ import android.content.Context
 import android.os.Looper
 import android.util.Log
 import com.google.android.gms.location.*
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.learn.domain.entity.Location
 import org.learn.domain.entity.ResponseState
 import org.learn.domain.entity.Success
 import org.learn.domain.repository.LocationRepository
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.EmptyCoroutineContext
 
 class LocationRepositoryGoogleServiceImpl(val provider: FusedLocationProviderClient) : LocationRepository {
 
@@ -29,20 +29,20 @@ class LocationRepositoryGoogleServiceImpl(val provider: FusedLocationProviderCli
     @SuppressLint("MissingPermission")
     private fun buildLocationFlow(): Flow<ResponseState<Location>> {
         val channel = Channel<ResponseState<Location>>()
-        val callback = CoroutineScopeAwaredCallback()
-        //val callback = ChannelAwaredCallback()
+        //val callback = CoroutineScopeAwaredCallback()
+        val callback = ChannelAwaredCallback(channel)
 
-        val result = flow<ResponseState<Location>> {
+        return flow<ResponseState<Location>> {
             try {
                 val request = LocationRequest().apply {
                     interval = 1000
                     priority = LocationRequest.PRIORITY_HIGH_ACCURACY
                 }
-                coroutineScope {
+        /*        coroutineScope {
                     callback.flowCollector = this@flow
                     callback.scope = this
                 }
-                provider.requestLocationUpdates(
+        */        provider.requestLocationUpdates(
                     request,
                     callback,
                     Looper.getMainLooper()
@@ -58,7 +58,6 @@ class LocationRepositoryGoogleServiceImpl(val provider: FusedLocationProviderCli
                 provider.removeLocationUpdates(callback)
             }
         }
-        return result
     }
 
     inner class CoroutineScopeAwaredCallback() : LocationCallback() {
@@ -92,5 +91,62 @@ class LocationRepositoryGoogleServiceImpl(val provider: FusedLocationProviderCli
 
     companion object {
         fun getInstance(context: Context) = LocationRepositoryGoogleServiceImpl(LocationServices.getFusedLocationProviderClient(context))
+    }
+}
+
+fun <T> sharedFlow(
+    sourceFlowDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    block: suspend FlowCollector<T>.() -> Unit
+): SharedFlow<T> {
+    return SharedFlowImpl(flow(block), sourceFlowDispatcher)
+}
+
+interface SharedFlow<T> {
+    fun subscribe(): Flow<T>
+}
+
+class SharedFlowImpl<T>(source: Flow<T>, dispatcher: CoroutineDispatcher) : SharedFlow<T> {
+
+    private val children = mutableSetOf<Channel<T>>()
+
+
+    val mutex = Mutex()
+    private val sourceFlowScope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val source = source.flowOn(EmptyCoroutineContext + dispatcher)
+
+    override fun subscribe(): Flow<T> = flow {
+        val channel = Channel<T>()
+        mutex.withLock {
+            children.add(channel)
+            if (children.size == 1) {
+                startSourceFlow()
+            }
+        }
+        try {
+            coroutineScope {
+                while (isActive) {
+                    emit(channel.receive())
+                }
+            }
+        } finally {
+            mutex.withLock {
+                children.remove(channel)
+                channel.close()
+            }
+        }
+    }
+
+    private fun startSourceFlow() {
+        sourceFlowScope.launch {
+            source.collect { value ->
+                mutex.withLock {
+                    while (children.isNotEmpty()) {
+                        for (child in children) {
+                            child.send(value)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
