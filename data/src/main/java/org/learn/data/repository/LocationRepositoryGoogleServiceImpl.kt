@@ -7,7 +7,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.learn.domain.entity.Location
 import org.learn.domain.entity.ResponseFlow
-import org.learn.domain.entity.Success
+import org.learn.domain.entity.emitSuccess
 import org.learn.domain.repository.LocationRepository
 
 class LocationRepositoryGoogleServiceImpl(val locationDataSource: GoogleServiceLocationDataSource) : LocationRepository {
@@ -24,7 +24,7 @@ class LocationRepositoryGoogleServiceImpl(val locationDataSource: GoogleServiceL
         try {
             coroutineScope {
                 while (isActive) {
-                    emit(channel.receive().let { Success(Location(it.latitude, it.longitude)) })
+                    emitSuccess(channel.receive().let { Location(it.latitude, it.longitude) })
                 }
             }
         } finally {
