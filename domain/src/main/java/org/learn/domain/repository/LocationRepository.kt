@@ -1,10 +1,9 @@
 package org.learn.domain.repository
 
-import kotlinx.coroutines.flow.Flow
 import org.learn.domain.entity.Location
-import org.learn.domain.entity.ResponseState
+import org.learn.domain.entity.ResponseFlow
 
 interface LocationRepository {
 
-    fun listenLocationUpdates(): Flow<ResponseState<Location>>
+    fun listenLocationUpdates(): ResponseFlow<Location>
 }
