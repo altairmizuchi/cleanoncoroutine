@@ -22,10 +22,8 @@ class LocationRepositoryGoogleServiceImpl(val locationDataSource: GoogleServiceL
         val channel = locationDataSource.subscribe(request)
 
         try {
-            coroutineScope {
-                while (isActive) {
-                    emitSuccess(channel.receive().let { Location(it.latitude, it.longitude) })
-                }
+            while (true) {
+                emitSuccess(channel.receive().let { Location(it.latitude, it.longitude) })
             }
         } finally {
             locationDataSource.unsubscribe(request, channel)
